@@ -11,6 +11,7 @@ const state = {
   photoAssessment: null,
   previewUrls: [],
   supplierQuotes: {},
+  supplierQuoteLoads: {},
   quoteSequence: 0,
 };
 
@@ -461,6 +462,7 @@ async function loadAssessment() {
     state.items = payload.items.map((item) => ({ ...item }));
     state.catalogueParts = payload.catalogue_parts || [];
     state.supplierQuotes = {};
+    state.supplierQuoteLoads = {};
     state.quoteSequence = 0;
     elements.localPartOptions.innerHTML = state.catalogueParts.map((part) => (
       `<option value="${escapeHtml(part.part_name)}">`
@@ -860,14 +862,63 @@ function procurementParts() {
 function blankSupplierQuote(partKey) {
   state.quoteSequence += 1;
   return {
-    id: `quote-${state.quoteSequence}`,
+    id: `draft-${state.quoteSequence}`,
+    quote_id: null,
     part_key: partKey,
     supplier: "",
-    stock: "",
+    stock_status: "unknown",
+    stock_quantity: "",
     unit_price: "",
-    arrival: "",
-    selected: false,
+    currency: "NZD",
+    estimated_arrival: "",
+    notes: "",
+    is_preferred: false,
+    is_draft: true,
+    dirty: true,
+    saving: false,
+    error: "",
   };
+}
+
+function quoteFromApi(quote, partKey) {
+  return {
+    ...quote,
+    id: quote.quote_id,
+    part_key: partKey,
+    stock_quantity: quote.stock_quantity ?? "",
+    estimated_arrival: quote.estimated_arrival || "",
+    is_preferred: Boolean(quote.is_preferred),
+    is_draft: false,
+    dirty: false,
+    saving: false,
+    error: "",
+  };
+}
+
+function currentVehicleId() {
+  return state.assessment?.vehicle?.id || elements.vehicleSelect.value;
+}
+
+async function loadSupplierQuotes(part, force = false) {
+  if (!force && state.supplierQuoteLoads[part.key] === "loaded") return;
+  state.supplierQuoteLoads[part.key] = "loading";
+  renderSupplierComparison();
+  try {
+    const params = new URLSearchParams({
+      vehicle_id: currentVehicleId(),
+      oem_number: part.oem_number,
+    });
+    const quotes = await request(`/api/v1/supplier-quotes?${params}`);
+    state.supplierQuotes[part.key] = quotes.map(
+      (quote) => quoteFromApi(quote, part.key)
+    );
+    state.supplierQuoteLoads[part.key] = "loaded";
+  } catch (error) {
+    state.supplierQuoteLoads[part.key] = "error";
+    state.supplierQuotes[part.key] = [];
+    state.supplierQuoteLoads[`${part.key}:error`] = error.message;
+  }
+  renderSupplierComparison();
 }
 
 function dateDisplayFromIso(value) {
@@ -899,9 +950,38 @@ function supplierQuoteBadges(quote, lowestPrice, earliestArrival) {
   const badges = [];
   const price = Number(quote.unit_price);
   if (price > 0 && price === lowestPrice) badges.push("Lowest price");
-  if (quote.arrival && quote.arrival === earliestArrival) badges.push("Earliest arrival");
-  if (Number(quote.stock) > 0) badges.push("In stock");
+  if (
+    quote.estimated_arrival
+    && quote.estimated_arrival === earliestArrival
+  ) badges.push("Earliest arrival");
+  if (quote.stock_status === "in_stock") badges.push("In stock");
+  if (quote.stock_status === "out_of_stock") badges.push("Out of stock");
+  if (quote.stock_status === "backorder") badges.push("Backorder");
+  if (quote.stock_status === "unknown") badges.push("Availability unknown");
+  if (quote.is_draft) badges.push("Unsaved");
+  if (quote.dirty && !quote.is_draft) badges.push("Changes not saved");
   return badges.map((badge) => `<span>${escapeHtml(badge)}</span>`).join("");
+}
+
+function stockSummary(quote) {
+  if (quote.stock_status === "in_stock") {
+    return `${escapeHtml(quote.stock_quantity)} in stock`;
+  }
+  if (quote.stock_status === "out_of_stock") return "Out of stock";
+  if (quote.stock_status === "backorder") return "Backorder";
+  return "Availability unknown";
+}
+
+function availabilityOptions(selected) {
+  return [
+    ["unknown", "Unknown"],
+    ["in_stock", "In stock"],
+    ["out_of_stock", "Out of stock"],
+    ["backorder", "Backorder"],
+  ].map(([value, label]) => (
+    `<option value="${value}" ${selected === value ? "selected" : ""}>`
+    + `${label}</option>`
+  )).join("");
 }
 
 function renderSupplierComparison() {
@@ -914,24 +994,26 @@ function renderSupplierComparison() {
   }
 
   parts.forEach((part) => {
-    if (!state.supplierQuotes[part.key]?.length) {
-      state.supplierQuotes[part.key] = [blankSupplierQuote(part.key)];
+    if (!state.supplierQuoteLoads[part.key]) {
+      state.supplierQuoteLoads[part.key] = "loading";
+      loadSupplierQuotes(part);
     }
   });
 
   elements.supplierComparison.innerHTML = parts.map((part) => {
     const quotes = state.supplierQuotes[part.key] || [];
+    const loadState = state.supplierQuoteLoads[part.key];
     const prices = quotes
       .map((quote) => Number(quote.unit_price))
       .filter((price) => price > 0);
     const arrivals = quotes
-      .map((quote) => quote.arrival)
+      .map((quote) => quote.estimated_arrival)
       .filter(Boolean)
       .sort();
     const lowestPrice = prices.length ? Math.min(...prices) : null;
     const earliestArrival = arrivals[0] || "";
-    const selectedQuote = quotes.find((quote) => quote.selected);
-    const quoteRows = quotes.map((quote) => `
+    const selectedQuote = quotes.find((quote) => quote.is_preferred);
+    let quoteRows = quotes.map((quote) => `
       <tr data-part-key="${escapeHtml(part.key)}" data-quote-id="${escapeHtml(quote.id)}">
         <td>
           <input
@@ -942,14 +1024,21 @@ function renderSupplierComparison() {
           >
         </td>
         <td>
+          <select
+            data-quote-field="stock_status"
+            aria-label="Availability"
+          >${availabilityOptions(quote.stock_status)}</select>
+        </td>
+        <td>
           <input
-            data-quote-field="stock"
+            data-quote-field="stock_quantity"
             type="number"
-            min="0"
+            min="1"
             step="1"
-            value="${escapeHtml(quote.stock)}"
+            value="${escapeHtml(quote.stock_quantity)}"
             placeholder="Qty"
             aria-label="Stock quantity"
+            ${quote.stock_status === "in_stock" ? "" : "disabled"}
           >
         </td>
         <td>
@@ -971,7 +1060,7 @@ function renderSupplierComparison() {
             <input
               data-quote-date-display
               type="text"
-              value="${escapeHtml(dateDisplayFromIso(quote.arrival))}"
+              value="${escapeHtml(dateDisplayFromIso(quote.estimated_arrival))}"
               placeholder="DD/MM/YYYY"
               inputmode="numeric"
               maxlength="10"
@@ -990,10 +1079,10 @@ function renderSupplierComparison() {
             </button>
             <input
               class="native-date-picker"
-              data-quote-field="arrival"
+              data-quote-field="estimated_arrival"
               type="date"
               lang="en-NZ"
-              value="${escapeHtml(quote.arrival)}"
+              value="${escapeHtml(quote.estimated_arrival)}"
               tabindex="-1"
               aria-hidden="true"
             >
@@ -1006,19 +1095,46 @@ function renderSupplierComparison() {
         </td>
         <td class="quote-actions">
           <button
-            class="quote-select ${quote.selected ? "selected" : ""}"
+            class="quote-save"
+            data-quote-action="save"
+            type="button"
+            ${quote.saving ? "disabled" : ""}
+          >${quote.saving ? "Saving…" : quote.is_draft ? "Save quote" : "Update"}</button>
+          <button
+            class="quote-select ${quote.is_preferred ? "selected" : ""}"
             data-quote-action="select"
             type="button"
-          >${quote.selected ? "Selected" : "Select"}</button>
+            ${quote.saving ? "disabled" : ""}
+          >${quote.is_preferred ? "Preferred" : "Make preferred"}</button>
           <button
             class="quote-remove"
             data-quote-action="remove"
             type="button"
+            ${quote.saving ? "disabled" : ""}
             aria-label="Remove supplier quote"
           >×</button>
+          ${quote.error
+            ? `<span class="quote-error">${escapeHtml(quote.error)}</span>`
+            : ""}
         </td>
       </tr>
     `).join("");
+    if (!quoteRows) {
+      if (loadState === "loading") {
+        quoteRows = '<tr><td class="quote-empty-row" colspan="7">Loading saved quotes…</td></tr>';
+      } else if (loadState === "error") {
+        quoteRows = `
+          <tr>
+            <td class="quote-empty-row" colspan="7">
+              Could not load saved quotes.
+              <button data-quote-action="retry" data-part-key="${escapeHtml(part.key)}" type="button">Retry</button>
+            </td>
+          </tr>
+        `;
+      } else {
+        quoteRows = '<tr><td class="quote-empty-row" colspan="7">No saved quotes yet. Availability remains unknown until a quote is added.</td></tr>';
+      }
+    }
     return `
       <article class="supplier-part" data-part-key="${escapeHtml(part.key)}">
         <div class="supplier-part-heading">
@@ -1034,6 +1150,7 @@ function renderSupplierComparison() {
             data-quote-action="add"
             data-part-key="${escapeHtml(part.key)}"
             type="button"
+            ${loadState === "loaded" ? "" : "disabled"}
           >+ Add supplier quote</button>
         </div>
         <div class="supplier-table-wrap">
@@ -1041,7 +1158,8 @@ function renderSupplierComparison() {
             <thead>
               <tr>
                 <th>Supplier</th>
-                <th>Stock</th>
+                <th>Availability</th>
+                <th>Quantity</th>
                 <th>Unit price</th>
                 <th>Estimated arrival</th>
                 <th>Comparison</th>
@@ -1055,10 +1173,10 @@ function renderSupplierComparison() {
           ${selectedQuote
             ? `<strong>Preferred quote:</strong>
               <span>${escapeHtml(selectedQuote.supplier || "Unnamed supplier")}</span>
-              <span>${Number(selectedQuote.stock) > 0 ? `${escapeHtml(selectedQuote.stock)} in stock` : "Stock not confirmed"}</span>
+              <span>${stockSummary(selectedQuote)}</span>
               <span>${Number(selectedQuote.unit_price) > 0 ? `NZ$${Number(selectedQuote.unit_price).toFixed(2)}` : "Price not entered"}</span>
-              <span>${selectedQuote.arrival ? `Arrives ${escapeHtml(dateDisplayFromIso(selectedQuote.arrival))}` : "Arrival not entered"}</span>`
-            : "Enter at least two quotes for a useful comparison, then select the preferred supplier."}
+              <span>${selectedQuote.estimated_arrival ? `Arrives ${escapeHtml(dateDisplayFromIso(selectedQuote.estimated_arrival))}` : "Arrival not entered"}</span>`
+            : "Saved quotes will return after refresh. Add a quote, then choose a preferred supplier if needed."}
         </div>
       </article>
     `;
@@ -1072,6 +1190,85 @@ function supplierQuoteFromControl(control) {
   return quotes.find((quote) => quote.id === row.dataset.quoteId) || null;
 }
 
+function quotePayload(part, quote, preferred = quote.is_preferred) {
+  return {
+    vehicle_id: currentVehicleId(),
+    oem_number: part.oem_number,
+    part_name: part.part_name,
+    supplier: quote.supplier.trim(),
+    unit_price: Number(quote.unit_price),
+    currency: quote.currency || "NZD",
+    stock_status: quote.stock_status || "unknown",
+    stock_quantity: (
+      quote.stock_status === "in_stock"
+        ? Number(quote.stock_quantity)
+        : null
+    ),
+    estimated_arrival: quote.estimated_arrival || null,
+    notes: quote.notes || "",
+    is_preferred: Boolean(preferred),
+  };
+}
+
+async function persistSupplierQuote(partKey, quote, preferred = quote.is_preferred) {
+  const part = procurementParts().find((candidate) => candidate.key === partKey);
+  if (!part) throw new Error("The confirmed part is no longer available");
+  if (!(Number(quote.unit_price) > 0)) {
+    throw new Error("Enter a unit price greater than zero");
+  }
+  if (
+    quote.stock_status === "in_stock"
+    && !(Number(quote.stock_quantity) >= 1)
+  ) {
+    throw new Error("Enter a stock quantity of at least 1");
+  }
+
+  quote.saving = true;
+  quote.error = "";
+  renderSupplierComparison();
+  try {
+    const payload = quotePayload(part, quote, preferred);
+    let saved;
+    if (quote.is_draft) {
+      saved = await request("/api/v1/supplier-quotes", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    } else {
+      const {
+        vehicle_id: _vehicleId,
+        oem_number: _oemNumber,
+        ...changes
+      } = payload;
+      saved = await request(
+        `/api/v1/supplier-quotes/${encodeURIComponent(quote.quote_id)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(changes),
+        }
+      );
+    }
+    const quotes = state.supplierQuotes[partKey] || [];
+    if (saved.is_preferred) {
+      quotes.forEach((candidate) => {
+        candidate.is_preferred = false;
+      });
+    }
+    const index = quotes.findIndex((candidate) => candidate.id === quote.id);
+    const normalised = quoteFromApi(saved, partKey);
+    if (index >= 0) quotes.splice(index, 1, normalised);
+    else quotes.push(normalised);
+    state.supplierQuoteLoads[partKey] = "loaded";
+    renderSupplierComparison();
+    return normalised;
+  } catch (error) {
+    quote.saving = false;
+    quote.error = error.message;
+    renderSupplierComparison();
+    throw error;
+  }
+}
+
 elements.supplierComparison.addEventListener("input", (event) => {
   if (event.target.matches("[data-quote-date-display]")) {
     event.target.value = formatDateEntry(event.target.value);
@@ -1081,7 +1278,11 @@ elements.supplierComparison.addEventListener("input", (event) => {
   const field = event.target.dataset.quoteField;
   if (!field) return;
   const quote = supplierQuoteFromControl(event.target);
-  if (quote) quote[field] = event.target.value;
+  if (quote) {
+    quote[field] = event.target.value;
+    quote.dirty = true;
+    quote.error = "";
+  }
 });
 
 elements.supplierComparison.addEventListener("change", (event) => {
@@ -1096,18 +1297,33 @@ elements.supplierComparison.addEventListener("change", (event) => {
       return;
     }
     event.target.setCustomValidity("");
-    quote.arrival = arrival;
+    quote.estimated_arrival = arrival;
+    quote.dirty = true;
     renderSupplierComparison();
     return;
   }
   const field = event.target.dataset.quoteField;
   if (!field) return;
   const quote = supplierQuoteFromControl(event.target);
-  if (quote) quote[field] = event.target.value;
+  if (quote) {
+    quote[field] = event.target.value;
+    quote.dirty = true;
+    quote.error = "";
+    if (field === "stock_status") {
+      if (quote.stock_status === "out_of_stock") quote.stock_quantity = 0;
+      if (
+        quote.stock_status === "unknown"
+        || quote.stock_status === "backorder"
+      ) quote.stock_quantity = "";
+      if (quote.stock_status === "in_stock" && Number(quote.stock_quantity) < 1) {
+        quote.stock_quantity = "";
+      }
+    }
+  }
   renderSupplierComparison();
 });
 
-elements.supplierComparison.addEventListener("click", (event) => {
+elements.supplierComparison.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-quote-action]");
   if (!button) return;
   const action = button.dataset.quoteAction;
@@ -1116,6 +1332,12 @@ elements.supplierComparison.addEventListener("click", (event) => {
     if (!picker) return;
     if (typeof picker.showPicker === "function") picker.showPicker();
     else picker.click();
+    return;
+  }
+  if (action === "retry") {
+    const retryKey = button.dataset.partKey;
+    const part = procurementParts().find((candidate) => candidate.key === retryKey);
+    if (part) await loadSupplierQuotes(part, true);
     return;
   }
   const partKey = (
@@ -1130,19 +1352,70 @@ elements.supplierComparison.addEventListener("click", (event) => {
     const row = button.closest("tr[data-quote-id]");
     const quoteId = row?.dataset.quoteId;
     if (!quoteId) return;
+    const quote = quotes.find((candidate) => candidate.id === quoteId);
+    if (!quote) return;
+    if (action === "save") {
+      try {
+        await persistSupplierQuote(partKey, quote);
+        showToast("Supplier quote saved");
+      } catch (error) {
+        showToast(error.message);
+      }
+      return;
+    }
     if (action === "select") {
-      quotes.forEach((quote) => {
-        quote.selected = quote.id === quoteId;
-      });
+      try {
+        await persistSupplierQuote(partKey, quote, true);
+        showToast("Preferred quote saved");
+      } catch (error) {
+        showToast(error.message);
+      }
+      return;
     }
     if (action === "remove") {
-      const index = quotes.findIndex((quote) => quote.id === quoteId);
-      if (index >= 0) quotes.splice(index, 1);
-      if (!quotes.length) quotes.push(blankSupplierQuote(partKey));
+      try {
+        if (!quote.is_draft) {
+          quote.saving = true;
+          renderSupplierComparison();
+          await request(
+            `/api/v1/supplier-quotes/${encodeURIComponent(quote.quote_id)}`,
+            { method: "DELETE" }
+          );
+        }
+        const index = quotes.findIndex((candidate) => candidate.id === quoteId);
+        if (index >= 0) quotes.splice(index, 1);
+        showToast(quote.is_draft ? "Unsaved quote removed" : "Supplier quote deleted");
+      } catch (error) {
+        quote.saving = false;
+        quote.error = error.message;
+        showToast(error.message);
+      }
     }
   }
   renderSupplierComparison();
 });
+
+async function persistSupplierQuoteChanges() {
+  const parts = procurementParts();
+  for (const part of parts) {
+    const quotes = [...(state.supplierQuotes[part.key] || [])];
+    for (const quote of quotes) {
+      if (!quote.is_draft && !quote.dirty) continue;
+      const hasEnteredData = (
+        quote.supplier.trim()
+        || Number(quote.unit_price) > 0
+        || quote.stock_status !== "unknown"
+        || quote.estimated_arrival
+      );
+      if (!hasEnteredData) continue;
+      await persistSupplierQuote(part.key, quote);
+    }
+  }
+  return parts
+    .flatMap((part) => state.supplierQuotes[part.key] || [])
+    .filter((quote) => !quote.is_draft && quote.quote_id)
+    .map((quote) => quote.quote_id);
+}
 
 function imageBounds() {
   const stageRect = elements.diagramStage.getBoundingClientRect();
@@ -1208,19 +1481,21 @@ async function saveCase() {
   elements.saveButton.textContent = "Saving…";
   elements.saveMessage.classList.add("hidden");
   const vehicle = state.assessment.vehicle || {};
-  const payload = {
-    vehicle_slug: vehicle.id || elements.vehicleSelect.value,
-    vehicle_make: vehicle.make || "",
-    vehicle_model: vehicle.model || "",
-    vehicle_year: String(vehicle.year || ""),
-    vehicle_trim: elements.trimInput.value.trim(),
-    vin: elements.vinInput.value.trim(),
-    status: "Reviewed",
-    photo_run_id: state.photoAssessment?.run_id || null,
-    items: state.items,
-  };
 
   try {
+    const quoteIds = await persistSupplierQuoteChanges();
+    const payload = {
+      vehicle_slug: vehicle.id || elements.vehicleSelect.value,
+      vehicle_make: vehicle.make || "",
+      vehicle_model: vehicle.model || "",
+      vehicle_year: String(vehicle.year || ""),
+      vehicle_trim: elements.trimInput.value.trim(),
+      vin: elements.vinInput.value.trim(),
+      status: "Reviewed",
+      photo_run_id: state.photoAssessment?.run_id || null,
+      items: state.items,
+      quote_ids: quoteIds,
+    };
     const result = await request("/api/cases", {
       method: "POST",
       body: JSON.stringify(payload),

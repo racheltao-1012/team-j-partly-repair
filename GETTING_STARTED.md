@@ -96,7 +96,22 @@ http://localhost:8501
 7. 点击 `Save technician review` 保存。
 8. 点击 `Export CSV` 下载报告。
 
-### 流程 C：添加第 9 辆及更多车辆
+### 流程 C：保存供应商报价
+
+1. 先把带有 OEM number 的零件设为 `Confirm`。
+2. 在 `PROCUREMENT` 区域点击 `+ Add supplier quote`。
+3. 填写已知的 Unit price。Supplier、ETA 可以留空。
+4. Availability 默认是 `Unknown`。只有供应商明确确认后，才选择
+   `In stock`、`Out of stock` 或 `Backorder`。
+5. 选择 `In stock` 时必须填写至少为 1 的数量；`Unknown` 的空白数量不会
+   被系统当成没货。
+6. 点击 `Save quote`。报价会立即写入 `storage/inspection.db`，刷新页面后
+   再次确认同一车辆和 OEM number 时会自动读取。
+7. 修改后点击 `Update`；`Make preferred` 和删除也会立即写入后端。
+8. 点击 `Save technician review` 时，已经保存的报价会通过 quote ID
+   关联到案例，不会被复制或丢失。
+
+### 流程 D：添加第 9 辆及更多车辆
 
 1. 点击 `+ Add new vehicle`。
 2. 输入 Make、Model、Year 和可选的 Trim、VIN。
@@ -118,7 +133,7 @@ Left headlamp,81150-02M90,lighting,
 
 其中 `category` 和 `diagram_url` 可以留空。
 
-### 流程 D：以后给本地车辆补目录
+### 流程 E：以后给本地车辆补目录
 
 1. 选择 `Locally added vehicles` 中的车辆。
 2. 在车辆功能说明下面选择新的 CSV。

@@ -19,6 +19,7 @@ from app.dependencies import (
 from app.partly_client import PartlyAPIError
 from app.routers.catalogues import router as catalogues_router
 from app.routers.photo_assessments import router as photo_assessments_router
+from app.routers.supplier_quotes import router as supplier_quotes_router
 from app.routers.vehicles import router as vehicles_router
 from app.schemas import CaseCreate
 
@@ -39,13 +40,14 @@ app = FastAPI(
         "Extensible technician verification workflow over Partly and "
         "technician-supplied vehicle catalogues."
     ),
-    version="0.4.0",
+    version="0.5.0",
     lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(vehicles_router)
 app.include_router(catalogues_router)
 app.include_router(photo_assessments_router)
+app.include_router(supplier_quotes_router)
 
 
 def partly_error(exc: PartlyAPIError) -> HTTPException:
@@ -130,7 +132,10 @@ async def diagram_meta(slug: str, diagram_id: str) -> Any:
 
 @app.post("/api/cases", status_code=201)
 async def create_case(payload: CaseCreate) -> dict[str, str]:
-    case_id = database.create_case(payload.model_dump())
+    try:
+        case_id = database.create_case(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {
         "case_id": case_id,
         "report_url": f"/api/cases/{case_id}",

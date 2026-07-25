@@ -14,10 +14,12 @@ Dataset API**. The product focus is:
 The current prototype keeps the official API unchanged on port `8420`, runs on
 port `8501`, and combines real photo analysis, an auditable impact-propagation
 graph, Partly demo data, local vehicles, and imported OEM catalogues. The
-prototype includes a manual supplier-quote workspace that compares stock,
-unit price and estimated arrival for each technician-confirmed OEM number.
-No supplier value is invented. Live quotes and direct order submission still
-require a connected supplier inventory and ordering API.
+prototype includes a persistent manual supplier-quote workspace that compares
+availability, unit price and estimated arrival for each technician-confirmed
+OEM number. Quotes are stored in SQLite as soon as they are saved, restored by
+vehicle + OEM number after refresh, and linked to saved cases without copying
+them. No supplier value is invented. Live quotes and direct order submission
+still require a connected supplier inventory and ordering API.
 
 ## What this prototype does
 
@@ -40,6 +42,11 @@ require a connected supplier inventory and ordering API.
   impact-path **inspection suggestions** with traceable paths and probabilities.
 - Lets a technician confirm, reject, request inspection, correct, or add a part.
 - Stores each review in SQLite.
+- Creates, updates, deletes and retrieves supplier quotes through backend APIs.
+- Stores availability separately as `unknown`, `in_stock`, `out_of_stock` or
+  `backorder`; a blank quantity is never treated as proof that a part is out of
+  stock.
+- Links already-saved quotes to a case when the technician review is saved.
 - Retrieves past cases only when the current photo pattern passes a similarity
   threshold based on impact zone, visible part, damage type and severity.
 - Uses only technician-confirmed parts from matched cases as clearly labelled
@@ -124,9 +131,12 @@ Docker, so your local Python installation does not need FastAPI.
    similar-case inspection recommendations.
 5. Check each OEM candidate and exact OEM number.
 6. Confirm, reject, correct, or add parts before any procurement action.
-7. For each confirmed OEM number, enter two or more supplier quotes and compare
-   stock, unit price and estimated arrival. Select the preferred quote.
-8. Click **Save technician review**, then **Export CSV** as the current order
+7. For each confirmed OEM number, click **Add supplier quote**, enter the known
+   unit price, and choose availability only when the supplier has confirmed it.
+   Click **Save quote**; the record is immediately stored and can be restored
+   after refreshing the page. Select a preferred quote when useful.
+8. Click **Save technician review**. Any unsaved completed quote row is saved
+   first, then its quote ID is linked to the case. Click **Export CSV** as the current order
    handoff. A supplier API can later replace manual quote entry with live data
    and direct order submission.
 
@@ -143,7 +153,7 @@ Left headlamp,81150-02M90,lighting,https://example.com/headlamp.png
 `category` and `diagram_url` are optional. The website includes a downloadable
 template. The prototype accepts UTF-8 CSV files up to 5 MB and 5,000 rows.
 
-Saved cases remain in:
+Saved cases and supplier quotes remain in:
 
 ```text
 storage/inspection.db
@@ -160,7 +170,7 @@ team-j-partly-repair/
 │   ├── dependencies.py      # provider/service wiring
 │   ├── partly_client.py     # calls the official API
 │   ├── assessment.py        # joins predictions to OEM catalogue parts
-│   ├── database.py          # vehicles, parts, feedback and CSV export
+│   ├── database.py          # vehicles, parts, quotes, feedback and CSV export
 │   ├── schemas.py           # unified validated data models
 │   ├── vision.py            # real vision and segmentation-webhook adapters
 │   ├── impact_graph.py      # probability propagation over part relations
@@ -194,6 +204,10 @@ team-j-partly-repair/
 | `POST /api/v1/photo-assessments/analyse` | Upload photos and run visible + hidden assessment |
 | `GET /api/v1/photo-assessments/{run_id}` | Retrieve a saved photo run |
 | `GET /api/v1/part-relations` | Inspect the graph and propagation weights |
+| `GET /api/v1/supplier-quotes?vehicle_id=...&oem_number=...` | Restore quotes for one vehicle part |
+| `POST /api/v1/supplier-quotes` | Save a manual supplier quote |
+| `PATCH /api/v1/supplier-quotes/{quote_id}` | Update a quote or preferred status |
+| `DELETE /api/v1/supplier-quotes/{quote_id}` | Delete a quote |
 | `POST /api/cases` | Save technician feedback |
 | `GET /api/cases/{case_id}` | Read a saved case |
 | `GET /api/cases/{case_id}/export.csv` | Download the reviewed report |

@@ -87,6 +87,35 @@ CREATE TABLE IF NOT EXISTS local_parts (
     UNIQUE(vehicle_id, part_name, oem_number)
 );
 
+CREATE TABLE IF NOT EXISTS supplier_quotes (
+    quote_id TEXT PRIMARY KEY,
+    vehicle_id TEXT NOT NULL,
+    oem_number TEXT NOT NULL,
+    part_name TEXT NOT NULL DEFAULT '',
+    supplier TEXT NOT NULL DEFAULT '',
+    unit_price REAL NOT NULL CHECK (unit_price > 0),
+    currency TEXT NOT NULL DEFAULT 'NZD',
+    stock_status TEXT NOT NULL DEFAULT 'unknown' CHECK (
+        stock_status IN ('unknown', 'in_stock', 'out_of_stock', 'backorder')
+    ),
+    stock_quantity INTEGER CHECK (
+        stock_quantity IS NULL OR stock_quantity >= 0
+    ),
+    estimated_arrival TEXT,
+    notes TEXT NOT NULL DEFAULT '',
+    is_preferred INTEGER NOT NULL DEFAULT 0 CHECK (
+        is_preferred IN (0, 1)
+    ),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS case_supplier_quotes (
+    case_id TEXT NOT NULL REFERENCES cases(case_id) ON DELETE CASCADE,
+    quote_id TEXT NOT NULL REFERENCES supplier_quotes(quote_id) ON DELETE CASCADE,
+    PRIMARY KEY (case_id, quote_id)
+);
+
 CREATE TABLE IF NOT EXISTS photo_assessments (
     run_id TEXT PRIMARY KEY,
     vehicle_id TEXT NOT NULL,
@@ -127,6 +156,10 @@ CREATE INDEX IF NOT EXISTS idx_cases_vehicle ON cases(vehicle_slug);
 CREATE INDEX IF NOT EXISTS idx_items_raw_part ON case_items(raw_part_name);
 CREATE INDEX IF NOT EXISTS idx_local_parts_vehicle ON local_parts(vehicle_id);
 CREATE INDEX IF NOT EXISTS idx_local_parts_oem ON local_parts(oem_number);
+CREATE INDEX IF NOT EXISTS idx_supplier_quotes_lookup
+    ON supplier_quotes(vehicle_id, oem_number);
+CREATE INDEX IF NOT EXISTS idx_case_supplier_quotes_case
+    ON case_supplier_quotes(case_id);
 CREATE INDEX IF NOT EXISTS idx_photo_assessments_vehicle
     ON photo_assessments(vehicle_id);
 CREATE INDEX IF NOT EXISTS idx_assessment_images_run
@@ -166,6 +199,8 @@ CSV_FIELDS = (
     "reason",
     "propagation_path",
     "probability_band",
+    "supplier_quote_count",
+    "supplier_quotes_json",
 )
 
 
@@ -414,6 +449,202 @@ class Database:
             "total_part_count": len(self.get_parts(vehicle_id)),
         }
 
+    @staticmethod
+    def _normalise_quote_values(payload: dict[str, Any]) -> dict[str, Any]:
+        stock_status = str(payload.get("stock_status") or "unknown")
+        if stock_status not in {
+            "unknown",
+            "in_stock",
+            "out_of_stock",
+            "backorder",
+        }:
+            raise ValueError("Unsupported stock status")
+
+        raw_quantity = payload.get("stock_quantity")
+        stock_quantity = (
+            int(raw_quantity)
+            if raw_quantity is not None and str(raw_quantity).strip() != ""
+            else None
+        )
+        if stock_status == "in_stock":
+            if stock_quantity is None or stock_quantity < 1:
+                raise ValueError(
+                    "Stock quantity must be at least 1 when availability is in stock"
+                )
+        elif stock_status == "out_of_stock":
+            stock_quantity = 0
+        else:
+            # A missing quantity is unknown, not evidence that stock is zero.
+            stock_quantity = None
+
+        unit_price = float(payload["unit_price"])
+        if unit_price <= 0:
+            raise ValueError("Unit price must be greater than zero")
+
+        estimated_arrival = payload.get("estimated_arrival")
+        return {
+            "part_name": str(payload.get("part_name") or "").strip(),
+            "supplier": str(payload.get("supplier") or "").strip(),
+            "unit_price": unit_price,
+            "currency": str(payload.get("currency") or "NZD").strip().upper(),
+            "stock_status": stock_status,
+            "stock_quantity": stock_quantity,
+            "estimated_arrival": (
+                str(estimated_arrival) if estimated_arrival else None
+            ),
+            "notes": str(payload.get("notes") or "").strip(),
+            "is_preferred": bool(payload.get("is_preferred", False)),
+        }
+
+    @staticmethod
+    def _quote_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        quote = dict(row)
+        quote["is_preferred"] = bool(quote["is_preferred"])
+        return quote
+
+    def create_supplier_quote(self, payload: dict[str, Any]) -> dict[str, Any]:
+        quote_id = str(uuid.uuid4())
+        vehicle_id = str(payload["vehicle_id"]).strip()
+        oem_number = str(payload["oem_number"]).strip()
+        if not vehicle_id or not oem_number:
+            raise ValueError("Vehicle and OEM number are required")
+        values = self._normalise_quote_values(payload)
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        with self._connect() as connection:
+            if values["is_preferred"]:
+                connection.execute(
+                    """
+                    UPDATE supplier_quotes
+                    SET is_preferred = 0, updated_at = ?
+                    WHERE vehicle_id = ? AND UPPER(oem_number) = UPPER(?)
+                    """,
+                    (timestamp, vehicle_id, oem_number),
+                )
+            connection.execute(
+                """
+                INSERT INTO supplier_quotes (
+                    quote_id, vehicle_id, oem_number, part_name, supplier,
+                    unit_price, currency, stock_status, stock_quantity,
+                    estimated_arrival, notes, is_preferred, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    quote_id,
+                    vehicle_id,
+                    oem_number,
+                    values["part_name"],
+                    values["supplier"],
+                    values["unit_price"],
+                    values["currency"],
+                    values["stock_status"],
+                    values["stock_quantity"],
+                    values["estimated_arrival"],
+                    values["notes"],
+                    int(values["is_preferred"]),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+        quote = self.get_supplier_quote(quote_id)
+        if quote is None:
+            raise RuntimeError("Supplier quote was not saved")
+        return quote
+
+    def get_supplier_quote(self, quote_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM supplier_quotes WHERE quote_id = ?",
+                (quote_id,),
+            ).fetchone()
+        return self._quote_from_row(row) if row else None
+
+    def list_supplier_quotes(
+        self,
+        vehicle_id: str,
+        oem_number: str,
+    ) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM supplier_quotes
+                WHERE vehicle_id = ? AND UPPER(oem_number) = UPPER(?)
+                ORDER BY is_preferred DESC, unit_price, updated_at DESC
+                """,
+                (vehicle_id, oem_number),
+            ).fetchall()
+        return [self._quote_from_row(row) for row in rows]
+
+    def update_supplier_quote(
+        self,
+        quote_id: str,
+        changes: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        existing = self.get_supplier_quote(quote_id)
+        if existing is None:
+            return None
+
+        merged = {
+            **existing,
+            **{key: value for key, value in changes.items() if value is not None},
+        }
+        # A caller can explicitly clear these optional values with null.
+        if "stock_quantity" in changes:
+            merged["stock_quantity"] = changes["stock_quantity"]
+        if "estimated_arrival" in changes:
+            merged["estimated_arrival"] = changes["estimated_arrival"]
+        values = self._normalise_quote_values(merged)
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        with self._connect() as connection:
+            if values["is_preferred"]:
+                connection.execute(
+                    """
+                    UPDATE supplier_quotes
+                    SET is_preferred = 0, updated_at = ?
+                    WHERE vehicle_id = ? AND UPPER(oem_number) = UPPER(?)
+                      AND quote_id <> ?
+                    """,
+                    (
+                        timestamp,
+                        existing["vehicle_id"],
+                        existing["oem_number"],
+                        quote_id,
+                    ),
+                )
+            connection.execute(
+                """
+                UPDATE supplier_quotes
+                SET part_name = ?, supplier = ?, unit_price = ?, currency = ?,
+                    stock_status = ?, stock_quantity = ?,
+                    estimated_arrival = ?, notes = ?, is_preferred = ?,
+                    updated_at = ?
+                WHERE quote_id = ?
+                """,
+                (
+                    values["part_name"],
+                    values["supplier"],
+                    values["unit_price"],
+                    values["currency"],
+                    values["stock_status"],
+                    values["stock_quantity"],
+                    values["estimated_arrival"],
+                    values["notes"],
+                    int(values["is_preferred"]),
+                    timestamp,
+                    quote_id,
+                ),
+            )
+        return self.get_supplier_quote(quote_id)
+
+    def delete_supplier_quote(self, quote_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM supplier_quotes WHERE quote_id = ?",
+                (quote_id,),
+            )
+        return cursor.rowcount > 0
+
     def create_case(self, payload: dict[str, Any]) -> str:
         case_id = str(uuid.uuid4())
         created_at = datetime.now(timezone.utc).isoformat()
@@ -506,6 +737,36 @@ class Database:
                         region.get("technician_note"),
                     ),
                 )
+            quote_ids = list(dict.fromkeys(payload.get("quote_ids") or []))
+            if quote_ids:
+                placeholders = ",".join("?" for _ in quote_ids)
+                existing_quotes = {
+                    str(row["quote_id"]): str(row["vehicle_id"])
+                    for row in connection.execute(
+                        (
+                            "SELECT quote_id, vehicle_id FROM supplier_quotes "
+                            f"WHERE quote_id IN ({placeholders})"
+                        ),
+                        quote_ids,
+                    ).fetchall()
+                }
+                missing_quote_ids = set(quote_ids) - set(existing_quotes)
+                if missing_quote_ids:
+                    raise ValueError("One or more supplier quotes no longer exist")
+                if any(
+                    vehicle_id != str(payload["vehicle_slug"])
+                    for vehicle_id in existing_quotes.values()
+                ):
+                    raise ValueError(
+                        "Supplier quotes must belong to the case vehicle"
+                    )
+                connection.executemany(
+                    """
+                    INSERT INTO case_supplier_quotes (case_id, quote_id)
+                    VALUES (?, ?)
+                    """,
+                    [(case_id, quote_id) for quote_id in quote_ids],
+                )
         return case_id
 
     def get_case(self, case_id: str) -> dict[str, Any] | None:
@@ -522,6 +783,16 @@ class Database:
             ).fetchall()
             region_rows = connection.execute(
                 "SELECT * FROM manual_regions WHERE case_id = ? ORDER BY region_id",
+                (case_id,),
+            ).fetchall()
+            quote_rows = connection.execute(
+                """
+                SELECT q.*
+                FROM supplier_quotes q
+                JOIN case_supplier_quotes cq ON cq.quote_id = q.quote_id
+                WHERE cq.case_id = ?
+                ORDER BY q.is_preferred DESC, q.oem_number, q.unit_price
+                """,
                 (case_id,),
             ).fetchall()
 
@@ -544,6 +815,9 @@ class Database:
             items.append(item)
         case["items"] = items
         case["manual_regions"] = [dict(row) for row in region_rows]
+        case["supplier_quotes"] = [
+            self._quote_from_row(row) for row in quote_rows
+        ]
         return case
 
     def list_part_relations(self) -> list[dict[str, Any]]:
@@ -853,6 +1127,13 @@ class Database:
         writer = csv.DictWriter(output, fieldnames=CSV_FIELDS)
         writer.writeheader()
         for item in case["items"]:
+            item_oem = str(item.get("oem_number") or "").strip().upper()
+            item_quotes = [
+                quote
+                for quote in case["supplier_quotes"]
+                if item_oem
+                and str(quote.get("oem_number") or "").strip().upper() == item_oem
+            ]
             writer.writerow(
                 {
                     "case_id": case["case_id"],
@@ -888,6 +1169,8 @@ class Database:
                         item.get("propagation_path") or []
                     ),
                     "probability_band": item.get("probability_band"),
+                    "supplier_quote_count": len(item_quotes),
+                    "supplier_quotes_json": json.dumps(item_quotes),
                 }
             )
         return output.getvalue()

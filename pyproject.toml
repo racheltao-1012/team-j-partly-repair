@@ -1,6 +1,6 @@
 [project]
 name = "team-j-partly-repair"
-version = "0.3.0"
+version = "0.5.0"
 description = "Photo-to-parts collision inspection workflow with technician verification"
 requires-python = ">=3.12"
 dependencies = [

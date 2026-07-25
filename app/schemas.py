@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic.networks import AnyHttpUrl
 
 
@@ -83,6 +84,49 @@ class ManualRegion(BaseModel):
     technician_note: str = ""
 
 
+StockStatus = Literal["unknown", "in_stock", "out_of_stock", "backorder"]
+
+
+class SupplierQuoteCreate(BaseModel):
+    vehicle_id: str = Field(min_length=1, max_length=200)
+    oem_number: str = Field(min_length=1, max_length=120)
+    part_name: str = Field(default="", max_length=200)
+    supplier: str = Field(default="", max_length=160)
+    unit_price: float = Field(gt=0)
+    currency: str = Field(default="NZD", pattern=r"^[A-Z]{3}$")
+    stock_status: StockStatus = "unknown"
+    stock_quantity: int | None = Field(default=None, ge=0)
+    estimated_arrival: date | None = None
+    notes: str = Field(default="", max_length=1000)
+    is_preferred: bool = False
+
+    @model_validator(mode="after")
+    def validate_stock(self) -> "SupplierQuoteCreate":
+        if self.stock_status == "in_stock":
+            if self.stock_quantity is None or self.stock_quantity < 1:
+                raise ValueError(
+                    "Stock quantity must be at least 1 when availability is in stock"
+                )
+        elif self.stock_status == "out_of_stock":
+            self.stock_quantity = 0
+        else:
+            # Unknown and backorder are not quantity claims.
+            self.stock_quantity = None
+        return self
+
+
+class SupplierQuoteUpdate(BaseModel):
+    part_name: str | None = Field(default=None, max_length=200)
+    supplier: str | None = Field(default=None, max_length=160)
+    unit_price: float | None = Field(default=None, gt=0)
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    stock_status: StockStatus | None = None
+    stock_quantity: int | None = Field(default=None, ge=0)
+    estimated_arrival: date | None = None
+    notes: str | None = Field(default=None, max_length=1000)
+    is_preferred: bool | None = None
+
+
 class CaseCreate(BaseModel):
     vehicle_slug: str
     vehicle_make: str = ""
@@ -94,3 +138,4 @@ class CaseCreate(BaseModel):
     photo_run_id: str | None = None
     items: list[CaseItem]
     manual_regions: list[ManualRegion] = Field(default_factory=list)
+    quote_ids: list[str] = Field(default_factory=list)
