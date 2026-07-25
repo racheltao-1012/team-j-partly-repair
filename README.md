@@ -204,25 +204,13 @@ The original `GET /api/vehicles` list alias remains for compatibility. The old
 vehicle-only assessment routes now reject requests so fixed demo predictions
 cannot be mistaken for a new photo analysis.
 
-## Photo model choices
+## Photo Analysis Mode
 
-The default `openai` provider sends base64 image inputs to the Responses API and
-uses strict structured output. It returns conservative bounding boxes rather
-than pixel masks. See the official
-[image-input guide](https://developers.openai.com/api/docs/guides/images-vision)
-and [Structured Outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs).
+No API key is required for the public demo.
 
-For a dedicated YOLO, Mask R-CNN, SAM, or other part/damage segmentation model,
-configure:
+The application uses bundled sample data and predefined analysis results to demonstrate the complete repair workflow, including damage areas, predicted related parts, OEM numbers, stock prices, and estimated arrival dates.
 
-```text
-VISION_PROVIDER=webhook
-VISION_WEBHOOK_URL=https://your-model-service/analyse
-VISION_WEBHOOK_TOKEN=optional-secret
-```
-
-The adapter contract and probability formula are documented in
-`PHOTO_DAMAGE_ANALYSIS_GUIDE.md`.
+Live AI photo inference is not enabled in this public version. The system is designed so that a real vision model can be connected later through the existing provider interface.
 
 ## Stop the applications
 
