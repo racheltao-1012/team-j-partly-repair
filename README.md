@@ -91,19 +91,14 @@ Keep that terminal running.
 
 ### 2. Start Team J
 
-Extract this project. Open the `team-j-partly-repair` folder in a **second**
+Extract this project. Open the `partly_hackthon_team_j` folder in a **second**
 VS Code window. In its terminal:
 
-For real photo inference, set the key in the current PowerShell window:
+No API key is required to run this project.
 
 ```powershell
-$env:OPENAI_API_KEY="your-key"
 docker compose up --build
 ```
-
-Do not paste the key into source code or commit it. If no key is supplied,
-`docker compose up --build` still runs the website in the clearly labelled
-guided-demo mode.
 
 When the terminal says Uvicorn is running, open:
 
