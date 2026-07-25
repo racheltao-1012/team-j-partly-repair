@@ -1,0 +1,82 @@
+[
+  {
+    "slug": "hyundai-iload-ezu765",
+    "make": "hyundai",
+    "model": "H1",
+    "year": 2009,
+    "oem_vehicle_id": "hyundai-iload-ezu765",
+    "diagram_count": 211,
+    "part_count": 9586,
+    "has_prediction": true
+  },
+  {
+    "slug": "hyundai-santafe-pns53",
+    "make": "hyundai",
+    "model": "SANTA FE",
+    "year": 2022,
+    "oem_vehicle_id": "hyundai-santafe-pns53",
+    "diagram_count": 179,
+    "part_count": 10781,
+    "has_prediction": true
+  },
+  {
+    "slug": "jaguar-epace-rfh447",
+    "make": "jaguar",
+    "model": "E-PACE",
+    "year": 2018,
+    "oem_vehicle_id": "jaguar-epace-rfh447",
+    "diagram_count": 294,
+    "part_count": 4854,
+    "has_prediction": true
+  },
+  {
+    "slug": "mitsubishi-outlander-rlp440",
+    "make": "mitsubishi",
+    "model": "OUTLANDER",
+    "year": 2025,
+    "oem_vehicle_id": "mitsubishi-outlander-rlp440",
+    "diagram_count": 269,
+    "part_count": 10841,
+    "has_prediction": true
+  },
+  {
+    "slug": "nissan-silvia-rft360",
+    "make": "nissan",
+    "model": "SILVIA",
+    "year": 1999,
+    "oem_vehicle_id": "nissan-silvia-rft360",
+    "diagram_count": 257,
+    "part_count": 8781,
+    "has_prediction": true
+  },
+  {
+    "slug": "toyota-hiace-nye733",
+    "make": "toyota",
+    "model": "GRNVA/HIACE/MJSTY",
+    "year": 2021,
+    "oem_vehicle_id": "toyota-hiace-nye733",
+    "diagram_count": 288,
+    "part_count": 12819,
+    "has_prediction": true
+  },
+  {
+    "slug": "toyota-prius-pkw74",
+    "make": "toyota",
+    "model": "PRIUS",
+    "year": 2014,
+    "oem_vehicle_id": "toyota-prius-pkw74",
+    "diagram_count": 176,
+    "part_count": 8352,
+    "has_prediction": true
+  },
+  {
+    "slug": "toyota-yaris-qmn16",
+    "make": "toyota",
+    "model": "YARIS",
+    "year": 2023,
+    "oem_vehicle_id": "toyota-yaris-qmn16",
+    "diagram_count": 187,
+    "part_count": 7009,
+    "has_prediction": true
+  }
+]

@@ -7,6 +7,7 @@ services:
       PARTLY_API_URL: http://host.docker.internal:8420
       DATABASE_PATH: /app/storage/inspection.db
       PHOTO_STORAGE_PATH: /app/storage/photo-assessments
+      VEHICLE_JSON_PATH: /app/data/vehicles.json
       VISION_PROVIDER: ${VISION_PROVIDER:-openai}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-5.6}

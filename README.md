@@ -26,6 +26,8 @@ require a connected supplier inventory and ordering API.
 - Imports real OEM part catalogues from CSV.
 - Returns Partly and local vehicles in one normalised format.
 - Keeps local vehicles usable when the Partly API is offline.
+- Loads the eight supplied Partly vehicle identities from
+  `data/vehicles.json` when the live Partly API is unavailable.
 - Shows only vehicle identity in the selector; a vehicle never carries a fixed
   damage result.
 - Accepts 1–4 real collision photos and sanitises them before storage.

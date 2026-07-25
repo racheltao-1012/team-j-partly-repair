@@ -177,15 +177,23 @@ async function initialise() {
     state.visionStatus = await request("/api/v1/photo-assessments/status");
     renderVisionStatus();
     const health = await request("/api/health");
+    const usingJsonFallback = health.vehicle_data_source === "json_fallback";
     const statusLabel = health.partly_api_connected
-      ? `${health.vehicle_count} vehicles · Partly + local`
-      : `${health.vehicle_count} local vehicles · Partly offline`;
+      ? `${health.vehicle_count} vehicles · Partly live`
+      : usingJsonFallback
+        ? `${health.vehicle_count} vehicles · JSON fallback`
+        : `${health.vehicle_count} local vehicles · Partly offline`;
     setApiStatus(health.partly_api_connected, statusLabel);
     await refreshVehicles();
     if (!health.partly_api_connected) {
-      elements.setupError.textContent = (
-        "Partly API is offline, but local vehicles and imported catalogues still work."
-      );
+      elements.setupError.textContent = usingJsonFallback
+        ? (
+          "Partly API is offline. Vehicle identities were loaded from "
+          + "data/vehicles.json. Live OEM parts and diagrams require Partly API."
+        )
+        : (
+          "Partly API is offline, but local vehicles and imported catalogues still work."
+        );
       elements.setupError.classList.remove("hidden");
     }
   } catch (error) {
@@ -487,7 +495,11 @@ function renderAssessment() {
 
   elements.vehicleTitle.textContent = vehicleDisplay(vehicle);
   elements.vehicleSubtitle.textContent = [
-    vehicle.source === "partly" ? "Partly demo data" : "Local catalogue data",
+    vehicle.data_source === "json_fallback"
+      ? "JSON vehicle snapshot"
+      : vehicle.source === "partly"
+        ? "Partly live data"
+        : "Local catalogue data",
     vehicle.diagram_count != null ? `${vehicle.diagram_count} diagrams` : "",
     vehicle.part_count != null ? `${vehicle.part_count} catalogue parts` : "",
   ].filter(Boolean).join(" · ");

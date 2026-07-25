@@ -23,6 +23,10 @@ PHOTO_STORAGE_PATH = os.getenv(
     "PHOTO_STORAGE_PATH",
     str(APP_DIR.parent / "storage" / "photo-assessments"),
 )
+VEHICLE_JSON_PATH = os.getenv(
+    "VEHICLE_JSON_PATH",
+    str(APP_DIR.parent / "data" / "vehicles.json"),
+)
 VISION_PROVIDER = os.getenv("VISION_PROVIDER", "openai").strip().casefold()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-5.6")
@@ -32,7 +36,7 @@ VISION_WEBHOOK_TOKEN = os.getenv("VISION_WEBHOOK_TOKEN", "")
 
 database = Database(DATABASE_PATH)
 partly_client = PartlyClient(PARTLY_API_URL)
-partly_provider = PartlyProvider(partly_client)
+partly_provider = PartlyProvider(partly_client, VEHICLE_JSON_PATH)
 local_provider = LocalCatalogueProvider(database)
 vehicle_service = VehicleService([partly_provider, local_provider])
 assessment_service = AssessmentService(vehicle_service)

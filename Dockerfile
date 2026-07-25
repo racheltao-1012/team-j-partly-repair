@@ -4,6 +4,7 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 COPY app ./app
+COPY data ./data
 RUN pip install --no-cache-dir .
 
 RUN mkdir -p /app/storage
@@ -11,6 +12,7 @@ RUN mkdir -p /app/storage
 ENV PARTLY_API_URL=http://host.docker.internal:8420
 ENV DATABASE_PATH=/app/storage/inspection.db
 ENV PHOTO_STORAGE_PATH=/app/storage/photo-assessments
+ENV VEHICLE_JSON_PATH=/app/data/vehicles.json
 
 EXPOSE 8501
 

@@ -13,6 +13,7 @@ from app.dependencies import (
     database,
     photo_assessment_service,
     partly_client,
+    partly_provider,
     vehicle_service,
 )
 from app.partly_client import PartlyAPIError
@@ -64,7 +65,7 @@ async def home() -> FileResponse:
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
     vehicles = await vehicle_service.list_vehicles()
-    partly_connected = "partly" not in vehicle_service.last_errors
+    partly_connected = partly_provider.last_api_error is None
     source_counts: dict[str, int] = {}
     for vehicle in vehicles:
         source = str(vehicle.get("source") or "unknown")
@@ -76,6 +77,8 @@ async def health() -> dict[str, Any]:
         "source_counts": source_counts,
         "provider_errors": vehicle_service.last_errors,
         "partly_api_url": PARTLY_API_URL,
+        "vehicle_data_source": partly_provider.vehicle_data_source,
+        "partly_api_error": partly_provider.last_api_error,
         "photo_analysis": photo_assessment_service.status(),
     }
 
