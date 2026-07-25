@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Team J — Photo-to-order workflow</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span>
+        <strong>Team J</strong>
+        <small>AI-assisted damage-to-order workflow</small>
+      </span>
+    </a>
+    <div id="apiStatus" class="status-pill checking">
+      <span class="status-dot"></span>
+      Checking data providers
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">PARTLY × WDCC HACKATHON 2026</p>
+        <h1>From damage photos to a<br><span>technician-approved order.</span></h1>
+        <p class="hero-copy">
+          Identify the vehicle, extract damage from the current photos, recommend
+          parts to inspect or replace, resolve the exact OEM number, compare
+          supplier stock, price and arrival time, then let the repairer confirm
+          and generate the order.
+        </p>
+      </div>
+      <div class="workflow" aria-label="Team J repair workflow">
+        <div><b>01</b><span>Upload damage photos</span></div>
+        <i></i>
+        <div><b>02</b><span>Identify vehicle details</span></div>
+        <i></i>
+        <div><b>03</b><span>Extract photo-based damage</span></div>
+        <i></i>
+        <div><b>04</b><span>Recommend checks & replacements</span></div>
+        <i></i>
+        <div><b>05</b><span>Match the exact OEM number</span></div>
+        <i></i>
+        <div><b>06</b><span>Compare stock, price & arrival</span></div>
+        <i></i>
+        <div><b>07</b><span>Repairer confirms & orders</span></div>
+      </div>
+    </section>
+
+    <section class="card case-setup">
+      <div class="section-heading">
+        <div>
+          <span class="step-label">STEP 01</span>
+          <h2>Upload evidence and identify the vehicle</h2>
+        </div>
+        <div class="section-heading-actions">
+          <p>Vehicle version still requires VIN or technician verification.</p>
+          <button id="toggleAddVehicleButton" class="secondary-button small">
+            + Add new vehicle
+          </button>
+        </div>
+      </div>
+      <div class="setup-grid">
+        <label>
+          <span>Vehicle *</span>
+          <select id="vehicleSelect">
+            <option value="">Loading vehicles…</option>
+          </select>
+        </label>
+        <label>
+          <span>VIN / registration</span>
+          <input id="vinInput" placeholder="Optional for this prototype">
+        </label>
+        <label>
+          <span>Trim / variant</span>
+          <input id="trimInput" placeholder="Technician-confirmed variant">
+        </label>
+        <button id="analyseButton" class="primary-button" disabled>
+          <span>Upload photos to analyse</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m9 18 6-6-6-6"/>
+          </svg>
+        </button>
+      </div>
+      <div id="catalogueUpdatePanel" class="catalogue-update-panel hidden">
+        <div>
+          <strong>Expand this vehicle's OEM catalogue</strong>
+          <span>Re-importing the same part updates its category or diagram URL.</span>
+        </div>
+        <div class="file-picker compact">
+          <input
+            id="existingCatalogueFile"
+            class="file-picker-input"
+            type="file"
+            accept=".csv,text/csv"
+          >
+          <label class="file-picker-button" for="existingCatalogueFile">Choose CSV</label>
+          <span id="existingCatalogueFileName" class="file-picker-name">No file chosen</span>
+        </div>
+        <button id="importCatalogueButton" class="secondary-button small" disabled>
+          Import CSV
+        </button>
+        <span id="existingCatalogueMessage" class="muted"></span>
+      </div>
+
+      <section class="photo-intake">
+        <div class="photo-intake-heading">
+          <div>
+            <p class="panel-kicker">PHOTO EVIDENCE</p>
+            <h3>Upload 1–4 collision photos</h3>
+            <p>
+              Use a wide view, the damaged side, a close-up, and a second angle.
+              Photos are analysed only after you click Analyse photos.
+            </p>
+          </div>
+          <span id="visionModeBadge" class="subtle-badge">Checking vision mode</span>
+        </div>
+        <div class="photo-intake-grid">
+          <div class="file-label">
+            <span>Vehicle photos</span>
+            <div class="file-picker">
+              <input
+                id="photoFiles"
+                class="file-picker-input"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+              >
+              <label class="file-picker-button" for="photoFiles">Choose files</label>
+              <span id="photoFileNames" class="file-picker-name">No files chosen</span>
+            </div>
+            <small>JPEG, PNG or WEBP · maximum 4 photos · 10 MB each</small>
+          </div>
+          <label>
+            <span>Impact-zone hint</span>
+            <select id="impactHint">
+              <option value="unknown">Let model estimate</option>
+              <option value="front">Front</option>
+              <option value="front_left">Front left</option>
+              <option value="front_right">Front right</option>
+              <option value="rear">Rear</option>
+              <option value="rear_left">Rear left</option>
+              <option value="rear_right">Rear right</option>
+              <option value="left_side">Left side</option>
+              <option value="right_side">Right side</option>
+            </select>
+          </label>
+        </div>
+        <div id="guidedControls" class="guided-controls hidden">
+          <div class="guided-warning">
+            <strong>Guided demo — not image inference</strong>
+            <span>
+              No vision model is configured. Enter the visible damage manually
+              to demonstrate OEM matching and impact propagation honestly.
+            </span>
+          </div>
+          <label>
+            <span>Technician-visible part *</span>
+            <input id="guidedVisiblePart" placeholder="Front bumper cover">
+          </label>
+          <label>
+            <span>Damage type</span>
+            <select id="guidedDamageType">
+              <option value="dent">Dent</option>
+              <option value="crack">Crack</option>
+              <option value="scratch">Scratch</option>
+              <option value="broken">Broken</option>
+              <option value="misalignment">Misalignment</option>
+              <option value="deformation">Deformation</option>
+            </select>
+          </label>
+          <label>
+            <span>Observed severity</span>
+            <input id="guidedSeverity" type="range" min="0.1" max="1" step="0.1" value="0.6">
+            <small id="guidedSeverityValue">60%</small>
+          </label>
+        </div>
+        <div id="photoPreviews" class="photo-previews"></div>
+        <p id="photoHelp" class="photo-help">
+          Photos are required. Selecting a vehicle loads identity and catalogue
+          data only; it never loads a fixed damage result.
+        </p>
+      </section>
+      <div id="setupError" class="error-message hidden"></div>
+
+      <form id="addVehicleForm" class="add-vehicle-panel hidden">
+        <div class="panel-heading compact">
+          <div>
+            <p class="panel-kicker">LOCAL CATALOGUE PROVIDER</p>
+            <h3>Add a vehicle beyond the Partly demo dataset</h3>
+          </div>
+          <button id="closeAddVehicleButton" type="button" class="text-button">
+            Close
+          </button>
+        </div>
+        <p class="form-explanation">
+          Vehicle details are stored locally. An optional CSV supplies real OEM
+          numbers; without it, the vehicle still supports a manual technician review.
+        </p>
+        <div class="vehicle-form-grid">
+          <label>
+            <span>Make *</span>
+            <input id="newMake" name="make" required placeholder="Toyota">
+          </label>
+          <label>
+            <span>Model *</span>
+            <input id="newModel" name="model" required placeholder="Corolla">
+          </label>
+          <label>
+            <span>Year *</span>
+            <input id="newYear" name="year" type="number" min="1886" max="2100" required value="2022">
+          </label>
+          <label>
+            <span>Trim / variant</span>
+            <input id="newTrim" name="trim" placeholder="GX">
+          </label>
+          <label>
+            <span>VIN</span>
+            <input id="newVin" name="vin" placeholder="Optional">
+          </label>
+          <div class="file-label">
+            <span>OEM catalogue CSV</span>
+            <div class="file-picker">
+              <input
+                id="catalogueFile"
+                class="file-picker-input"
+                name="catalogue"
+                type="file"
+                accept=".csv,text/csv"
+              >
+              <label class="file-picker-button" for="catalogueFile">Choose CSV</label>
+              <span id="catalogueFileName" class="file-picker-name">No file chosen</span>
+            </div>
+            <small>
+              Required: part_name, oem_number.
+              <a href="/static/catalogue-template.csv" download>Download template</a>
+            </small>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button id="createVehicleButton" type="submit" class="primary-button">
+            Add vehicle and import catalogue
+          </button>
+          <span id="addVehicleMessage" class="muted"></span>
+        </div>
+      </form>
+    </section>
+
+    <section id="workspace" class="workspace hidden">
+      <div class="summary-header">
+        <div>
+          <span class="step-label">STEP 02</span>
+          <h2 id="vehicleTitle">Review damage, checks and OEM matches</h2>
+          <p id="vehicleSubtitle"></p>
+        </div>
+        <div class="summary-actions">
+          <button id="saveButton" class="primary-button">Save technician review</button>
+          <button id="exportButton" class="secondary-button" disabled>Export CSV</button>
+        </div>
+      </div>
+
+      <section id="photoEvidenceCard" class="card photo-evidence-card hidden">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">VISIBLE PHOTO EVIDENCE</p>
+            <h3>Directly observed damage</h3>
+          </div>
+          <span id="photoRunBadge" class="subtle-badge">No photo run</span>
+        </div>
+        <div id="photoEvidenceMeta" class="photo-evidence-meta"></div>
+        <div id="photoEvidenceGallery" class="photo-evidence-gallery"></div>
+        <div id="photoWarnings" class="photo-warnings"></div>
+      </section>
+
+      <div class="metric-grid">
+        <article class="metric-card">
+          <span>Visible candidates</span>
+          <strong id="candidateCount">—</strong>
+          <small>From this photo run only</small>
+        </article>
+        <article class="metric-card">
+          <span>OEM matches</span>
+          <strong id="oemCount">—</strong>
+          <small>Resolved part numbers</small>
+        </article>
+        <article class="metric-card">
+          <span>Recommended checks</span>
+          <strong id="impactCount">—</strong>
+          <small>Impact path + similar cases</small>
+        </article>
+        <article class="metric-card accent">
+          <span>Technician progress</span>
+          <strong id="reviewProgress">0%</strong>
+          <small id="reviewProgressText">No rows reviewed</small>
+        </article>
+      </div>
+
+      <div class="inspection-grid">
+        <section class="card diagram-card">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-kicker">PARTS DIAGRAM</p>
+              <h3 id="diagramTitle">Select a row to view its location</h3>
+            </div>
+            <span id="diagramIdBadge" class="subtle-badge">No diagram</span>
+          </div>
+
+          <div id="diagramEmpty" class="diagram-empty">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 6h16v12H4zM8 10h.01M4 15l4-4 4 4 2-2 6 5"/>
+            </svg>
+            <p>Choose a candidate with a diagram ID.</p>
+          </div>
+          <div id="diagramStage" class="diagram-stage hidden">
+            <img id="diagramImage" alt="Partly parts diagram">
+            <div id="hotspotOverlay" class="hotspot-overlay hidden"></div>
+          </div>
+
+          <div class="checklist">
+            <div class="panel-heading compact">
+              <div>
+                <p class="panel-kicker">IMPACT PATH</p>
+                <h3>Suggested hidden-damage checks</h3>
+              </div>
+              <span class="warning-badge">Not a diagnosis</span>
+            </div>
+            <div id="impactChecklist" class="checklist-content">
+              <p class="muted">Run an assessment to generate checks.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="card review-card">
+          <div class="panel-heading">
+            <div>
+              <p class="panel-kicker">TECHNICIAN WORKBENCH</p>
+              <h3>Verify, reject or correct each candidate</h3>
+            </div>
+            <button id="addPartButton" class="secondary-button small">+ Add missing part</button>
+          </div>
+
+          <div class="legend">
+            <span><i class="legend-dot ai"></i>Visible photo candidate</span>
+            <span><i class="legend-dot impact"></i>Impact-path check</span>
+            <span><i class="legend-dot manual"></i>Technician-added</span>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Source & damage</th>
+                  <th>Catalogue candidate</th>
+                  <th>OEM number</th>
+                  <th>Evidence / probability</th>
+                  <th>Technician decision</th>
+                  <th>Correction / note</th>
+                </tr>
+              </thead>
+              <tbody id="assessmentRows"></tbody>
+            </table>
+          </div>
+
+          <div id="reviewEmpty" class="review-empty hidden">
+            No prediction candidates were returned for this vehicle.
+          </div>
+          <div id="saveMessage" class="save-message hidden"></div>
+        </section>
+      </div>
+
+      <section class="card supplier-card">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">STEP 06 · PROCUREMENT</p>
+            <h3>Compare supplier stock, price and arrival</h3>
+          </div>
+          <span id="supplierModeBadge" class="subtle-badge">Manual quote workspace</span>
+        </div>
+        <div class="supplier-notice">
+          <strong>Live supplier feed is not connected</strong>
+          <span>
+            Confirm an OEM-matched part, then enter supplier quotes below.
+            No stock, price or arrival value is invented by this prototype.
+          </span>
+        </div>
+        <div id="supplierEmpty" class="supplier-empty">
+          Confirm at least one candidate with a resolved OEM number to compare quotes.
+        </div>
+        <div id="supplierComparison" class="supplier-comparison hidden"></div>
+      </section>
+
+      <section class="card history-card">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">PAST EXPERIENCE</p>
+            <h3>Cases similar to this photo pattern</h3>
+          </div>
+          <span id="historyBadge" class="subtle-badge">0 similar cases</span>
+        </div>
+        <div id="historyContent" class="history-empty">
+          Saved cases are retrieved only after this photo run produces a similar
+          impact zone, visible part, damage type and severity.
+        </div>
+      </section>
+
+      <div class="disclaimer">
+        <strong>Human-in-the-loop safeguard</strong>
+        <p id="disclaimerText">
+          AI results are candidates only. A qualified technician must confirm the
+          damage, repair method and exact vehicle variant.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+  <datalist id="localPartOptions"></datalist>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+services:
+  inspection-web:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      PARTLY_API_URL: http://host.docker.internal:8420
+      DATABASE_PATH: /app/storage/inspection.db
+      PHOTO_STORAGE_PATH: /app/storage/photo-assessments
+      VISION_PROVIDER: ${VISION_PROVIDER:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-5.6}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      VISION_WEBHOOK_URL: ${VISION_WEBHOOK_URL:-}
+      VISION_WEBHOOK_TOKEN: ${VISION_WEBHOOK_TOKEN:-}
+    volumes:
+      - ./storage:/app/storage
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

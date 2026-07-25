@@ -1,0 +1,2 @@
+"""Partly inspection companion application."""
+
